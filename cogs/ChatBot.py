@@ -1,66 +1,65 @@
 import nextcord
-import assets
-import time
+import utils.assets as assets
 import os
-import traceback
-import helping_hand
-import assets
-import random
-import External_functions as ef
-import helping_hand
-from nextcord.ext import commands, tasks
+import utils.External_functions as ef
+from nextcord.ext import commands
+from asyncio import sleep
 
-#Use nextcord.slash_command()
+# Use nextcord.slash_command()
+
 
 def requirements():
-    return ['wolfram']
-
-models = ['BlenderBot','DialoGPT','Wolfram Scientific','PopCat']
+    return ["WOLFRAM"]
 
 
-class ChatBot(commands.Cog):        
-    def __init__(self, client, wolfram):
-        self.client = client
-        self.wolfram = wolfram
+models = ["BlenderBot", "DialoGPT", "Wolfram Scientific", "PopCat"]
+
+
+class ChatBot(
+    commands.Cog,
+    description=f"ChatBot features, Contains Four Models: {', '.join(models)}. They are amazing and unique\nCheck out each Model",
+):
+    def __init__(self, CLIENT: commands.Bot, WOLFRAM):
+        self.CLIENT = CLIENT
+        self.WOLFRAM = WOLFRAM
         self.models = models
         self.past_response = {}
         self.generated = {}
         self.auth = os.getenv("transformers_auth")
         self.headers = {"Authorization": f"Bearer {self.auth}"}
-        self.BASE_URL = "https://api-inference.huggingface.co/models"
 
-    def moderate_variables(self, id, input_text, output):
-        if len(self.past_response[id])>=50:
-            
-            self.past_response[id].pop(0)
-            self.generated[id].pop(0)            
-        self.past_response[id].append(input_text)
-        self.generated[id].append(output)
+    def moderate_variables(self, guild_id, input_text, output):
+        if len(self.past_response[guild_id]) >= 50:
+            self.past_response[guild_id].pop(0)
+            self.generated[guild_id].pop(0)
+        self.past_response[guild_id].append(input_text)
+        self.generated[guild_id].append(output)
 
     @commands.Cog.listener()
     async def on_message(self, message):
-        conditions = [            
+        conditions = [
             message.clean_content.lower().startswith("alfred "),
-            message.guild and message.guild.id not in self.client.config['respond'],
-            not message.author.bot
+            message.guild and message.guild.id not in self.CLIENT.config["respond"],
+            not message.author.bot,
         ]
         if all(conditions):
-            if not self.client.is_ready():
+            if not self.CLIENT.is_ready():
                 return
             print(message.content, message.guild)
             if message.guild.id not in self.generated:
                 self.generated[message.guild.id] = []
-                
+
             if message.guild.id not in self.past_response:
                 self.past_response[message.guild.id] = []
-                
-            input_text = message.clean_content[6:]
-            
-            if self.client.re[10].get(message.guild.id, 1) == 3:
-                a = await ef.wolf_spoken(self.wolfram, input_text)
 
-            if self.client.re[10].get(message.guild.id, 1) in (1,2):
-                API_URL = f"{self.BASE_URL}/facebook/blenderbot-400M-distill"
+            input_text = message.clean_content[6:]
+
+            if self.CLIENT.re[10].get(message.guild.id, 4) == 3:
+                a = await ef.wolf_spoken(self.WOLFRAM, input_text)
+
+            if self.CLIENT.re[10].get(message.guild.id, 4) in (1, 2):
+                BASE_URL = "https://api-inference.huggingface.co/models"
+                API_URL = f"{BASE_URL}/facebook/blenderbot-400M-distill"
                 payload = {
                     "inputs": {
                         "past_user_inputs": self.past_response[message.guild.id],
@@ -69,61 +68,109 @@ class ChatBot(commands.Cog):
                     },
                     "parameters": {"repetition_penalty": 1.33},
                 }
-                
-                if self.client.re[10].get(message.guild.id, 1) == 2:
-                    API_URL = f"{self.BASE_URL}/microsoft/DialoGPT-large"
-                    payload = {
-                        "inputs": input_text
-                    }
-                output = await ef.post_async(API_URL, header=self.headers, json=payload)
+
+                if self.CLIENT.re[10].get(message.guild.id, 4) == 2:
+                    API_URL = f"{BASE_URL}/microsoft/DialoGPT-large"
+                    payload = {"inputs": input_text}
+                output, type = await ef.post_async(
+                    API_URL, header=self.headers, json=payload
+                )
                 print(output)
-                a = output['generated_text']
+                a = output["generated_text"]
                 self.moderate_variables(message.guild.id, input_text, a)
-            if self.client.re[10].get(message.guild.id, 1) == 4:
-                a = await ef.get_async(f"https://api.popcat.xyz/chatbot?msg={ef.convert_to_url(input_text)}&owner=Batman&botname=Alfred",kind="json")
-                a = a['response']
+            if self.CLIENT.re[10].get(message.guild.id, 4) == 4:
+                a = await ef.get_async(
+                    f"https://api.popcat.xyz/chatbot?msg={ef.convert_to_url(input_text)}&owner=Batman&botname=Alfred",
+                    kind="json",
+                )
+                a = a["response"]
 
             await message.reply(a)
-                
-                
-                
+
+    @commands.command()
+    @commands.check(ef.check_command)
+    async def gen(self, ctx, *, text):
+        self.CLIENT.re[0] += 1
+        API_URL2 = "https://api-inference.huggingface.co/models/EleutherAI/gpt-neo-2.7B"
+        header2 = {"Authorization": f"Bearer {os.environ['transformers_auth']}"}
+        payload2 = {
+            "inputs": text,
+            "parameters": {"max_new_tokens": 100, "return_full_text": True},
+        }
+
+        output, type = await ef.post_async(API_URL2, header2, payload2)
+        print(output)
+        o = output[0]["generated_text"]
+
+        await ctx.reply(
+            embed=ef.cembed(
+                title="Generated text",
+                description=o,
+                color=self.CLIENT.color(ctx.guild),
+                thumbnail=self.CLIENT.user.avatar.url,
+            )
+        )
+
+    @nextcord.slash_command(
+        name="talktomyhand", description="Bots Talking to themselves"
+    )
+    async def talk(self, inter, start: str = "Hello there"):
+        texts = [f"User-> {start}"]
+        embed = ef.cembed(
+            title="Talk To My hand",
+            author=inter.user,
+            description="\n".join(texts),
+            color=inter.client.color(inter.guild),
+            thumbnail=inter.client.user.avatar.url,
+        )
+        await inter.send(embed=embed)
+        past_response = [start]
+        message = await inter.original_message()
+        for _ in range(10):
+            await sleep(2)
+            a = await ef.get_async(
+                f"https://api.popcat.xyz/chatbot?msg={ef.convert_to_url(past_response[-1])}&owner=Batman&botname=Alfred",
+                kind="json",
+            )
+            texts.append(f"Bot -> {a['response']}")
+            past_response.append(a["response"])
+            embed.description = "\n".join(texts)
+            await message.edit(embed=embed)
 
     @nextcord.slash_command("model")
-    async def changeM(self, inter, model = ef.defa(choices=models)):
+    async def changeM(self, inter, model=ef.defa(choices=models)):
         if not model:
-            mod = models[self.client.re[10].get(inter.guild.id, 1)-1]
+            mod = models[self.CLIENT.re[10].get(inter.guild.id, 1) - 1]
             await inter.send(
                 embed=ef.cembed(
                     description=f"Current model is {mod}",
-                    color=self.client.re[8]
+                    color=self.CLIENT.color(inter.guild),
                 )
             )
             return
         if not inter.user.guild_permissions.manage_guild:
-            d = assets.Emotes(self.client).animated_wrong
+            d = assets.Emotes(self.CLIENT).animated_wrong
             await inter.send(
-                ephemeral = True,
+                ephemeral=True,
                 embed=ef.cembed(
                     title="Permissions Denied",
                     description=f"{d} You cannot change the model of this server, you need Manage server permissions",
-                    color=self.client.re[8],
-                    thumbnail=self.client.user.avatar.url
-                )
+                    color=self.CLIENT.color(inter.guild),
+                    thumbnail=self.CLIENT.user.avatar.url,
+                ),
             )
             return
-        self.client.re[10][inter.guild.id] = self.models.index(model)+1
+        self.CLIENT.re[10][inter.guild.id] = self.models.index(model) + 1
         message = f"Switched to {model}"
         await inter.send(
             embed=ef.cembed(
                 title="Done",
                 description=message,
-                color=self.client.re[8],
-                thumbnail=self.client.user.avatar.url
+                color=self.CLIENT.color(inter.guild),
+                thumbnail=self.CLIENT.user.avatar.url,
             )
-        )   
-    
-            
+        )
 
 
-def setup(client,**i):
-    client.add_cog(ChatBot(client,**i))
+def setup(CLIENT, **i):
+    CLIENT.add_cog(ChatBot(CLIENT, **i))
